@@ -84,7 +84,10 @@ impl fmt::Display for Schedule {
 
 impl Schedule {
     pub async fn fetch(group_name: &str) -> Schedule {
-        let url = format!("https://rasps.nsuem.ru/group/{}", group_name);
+        let url = format!(
+            "https://rasps.nsuem.ru/group/{}",
+            group_name.replace(".", "/")
+        );
         let html = reqwest::get(&url).await.unwrap().text().await.unwrap();
 
         let document = Html::parse_document(&html);
