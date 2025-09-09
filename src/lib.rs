@@ -1,3 +1,5 @@
+use std::fmt;
+
 use scraper::{Html, Selector};
 
 #[derive(Debug, Clone)]
@@ -23,6 +25,61 @@ pub struct Lesson {
     pub subject: String,
     pub lesson_type: String,
     pub teacher: String,
+}
+
+impl fmt::Display for Lesson {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "<code>{}</code> {} ({}) | {}",
+            self.time_extended, self.subject, self.lesson_type, self.teacher
+        )
+    }
+}
+
+impl fmt::Display for Day {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for lesson in &self.lessons {
+            writeln!(f, "{}", lesson)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl fmt::Display for Week {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, day) in self.days.iter().enumerate() {
+            let day_name = match i {
+                0 => "Понедельник",
+                1 => "Вторник",
+                2 => "Среда",
+                3 => "Четверг",
+                4 => "Пятница",
+                5 => "Суббота",
+                6 => "Воскресенье:",
+                _ => unreachable!(),
+            };
+
+            if let Some(day) = day {
+                writeln!(f, "{}:", day_name)?;
+                writeln!(f, "{}", day)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for Schedule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Текущая неделя: {}", self.current_week)?;
+
+        for (i, week) in self.weeks.iter().enumerate() {
+            writeln!(f, "Неделя {}:", i + 1)?;
+            write!(f, "{}", week)?;
+        }
+        Ok(())
+    }
 }
 
 impl Schedule {

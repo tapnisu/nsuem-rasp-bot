@@ -1,105 +1,12 @@
 use std::{error::Error, process::exit, sync::Arc, time::Duration};
 
-use html_escape::encode_safe;
-use scraper::{Html, Selector};
+use nsuem_rasp_bot::Schedule;
 use teloxide::{
     prelude::*,
     types::{Me, ParseMode},
     utils::command::BotCommands,
 };
 use tokio::{sync::RwLock, time};
-
-async fn render_rasp(group_name: &str) -> String {
-    let url = format!("https://rasps.nsuem.ru/group/{}", group_name);
-    let req = reqwest::get(url).await.unwrap().text().await.unwrap();
-
-    let document = Html::parse_document(&req);
-    let row_selector = Selector::parse("table.table tr").unwrap();
-    let day_selector = Selector::parse("td.day-header").unwrap();
-    let time_selector = Selector::parse("td .extend_time").unwrap();
-    let td_selector = Selector::parse("td").unwrap();
-    let info_selector = Selector::parse(".mainScheduleInfo").unwrap();
-    let teacher_selector = Selector::parse(".Teacher a").unwrap();
-    let type_selector = Selector::parse(".small.text-muted").unwrap();
-
-    let week_cell = match document
-        .select(&Selector::parse("td#blink").unwrap())
-        .next()
-        .map(|cell| cell.text().collect::<String>().trim().to_string())
-        .as_deref()
-    {
-        Some("Вторая неделя") => 3,
-        Some("Первая неделя") | None | Some(_) => 2,
-    };
-
-    let mut output: Vec<String> = vec![];
-
-    for row in document.select(&row_selector) {
-        let cells: Vec<_> = row.select(&td_selector).collect();
-
-        if cells.len() < week_cell + 1 {
-            continue;
-        }
-
-        if let Some(day_cell) = row.select(&day_selector).next() {
-            let current_day = day_cell.text().collect::<String>().trim().to_string();
-            output.push(format!("\n<b>{}</b>:", current_day.to_uppercase()));
-        }
-
-        let time = row
-            .select(&time_selector)
-            .next()
-            .map(|t| {
-                t.text()
-                    .collect::<String>()
-                    .trim()
-                    .replace("--", "-")
-                    .to_string()
-            })
-            .unwrap_or_default();
-
-        let cell = &cells[week_cell];
-        if cell.select(&info_selector).next().is_none() {
-            continue;
-        }
-
-        let subject = cell
-            .select(&info_selector)
-            .next()
-            .map(|c| {
-                c.text()
-                    .collect::<String>()
-                    .lines()
-                    .next()
-                    .unwrap_or("")
-                    .trim()
-                    .to_string()
-            })
-            .unwrap_or_default();
-
-        let lesson_type = cell
-            .select(&type_selector)
-            .next()
-            .map(|t| t.text().collect::<String>().trim().to_string())
-            .unwrap_or_default();
-
-        let teacher = cell
-            .select(&teacher_selector)
-            .next()
-            .map(|a| a.text().collect::<String>().trim().to_string())
-            .unwrap_or_default();
-
-        output.push(format!(
-            "<code>{}</code> {} ({}) | {}",
-            encode_safe(&time),
-            encode_safe(&subject),
-            encode_safe(&lesson_type),
-            encode_safe(&teacher)
-        ));
-    }
-
-    output.join("\n")
-}
 
 #[derive(Clone, Debug)]
 struct GlobalData {
@@ -109,8 +16,11 @@ struct GlobalData {
 
 impl GlobalData {
     async fn new() -> anyhow::Result<GlobalData> {
-        let rasp1 = render_rasp("%D0%98%D0%A1502/1").await;
-        let rasp2 = render_rasp("%D0%98%D0%A1502/2").await;
+        let schedule1 = Schedule::new("%D0%98%D0%A1502/1").await;
+        let rasp1 = schedule1.weeks[schedule1.current_week - 1].to_string();
+
+        let schedule2 = Schedule::new("%D0%98%D0%A1502/2").await;
+        let rasp2 = schedule2.weeks[schedule2.current_week - 1].to_string();
 
         Ok(GlobalData { rasp1, rasp2 })
     }
