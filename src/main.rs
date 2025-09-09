@@ -1,7 +1,9 @@
-use scraper::{Html, Selector};
+use std::error::Error;
 
-#[tokio::main]
-async fn main() {
+use scraper::{Html, Selector};
+use teloxide::{prelude::*, types::Me, utils::command::BotCommands};
+
+async fn render_rasp() -> String {
     let req = reqwest::get("https://rasps.nsuem.ru/group/%D0%98%D0%A1502/2")
         .await
         .unwrap()
@@ -91,5 +93,71 @@ async fn main() {
         ));
     }
 
-    println!("{}", output.join("\n"));
+    output.join("\n")
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    pretty_env_logger::init();
+    log::info!("Starting command bot...");
+
+    dotenvy::dotenv().ok();
+
+    let bot = Bot::from_env();
+
+    let handler = dptree::entry()
+        .branch(Update::filter_message().endpoint(message_handler))
+        .branch(Update::filter_callback_query().endpoint(callback_handler));
+
+    Dispatcher::builder(bot, handler)
+        .enable_ctrlc_handler()
+        .build()
+        .dispatch()
+        .await;
+
+    Ok(())
+}
+
+#[derive(BotCommands, Clone)]
+#[command(
+    rename_rule = "lowercase",
+    description = "Поддерживаются следующие команды:"
+)]
+enum Command {
+    #[command(description = "отображает этот текст.")]
+    Start,
+    #[command(description = "отображает расписание.")]
+    Rasp,
+}
+
+async fn message_handler(
+    bot: Bot,
+    msg: Message,
+    me: Me,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Some(text) = msg.text() {
+        match BotCommands::parse(text, me.username()) {
+            Ok(Command::Start) => {
+                bot.send_message(msg.chat.id, Command::descriptions().to_string())
+                    .await?;
+            }
+            Ok(Command::Rasp) => {
+                let rasp = render_rasp().await;
+                bot.send_message(msg.chat.id, format!("Расписание для ИС502.2:\n\n{}", rasp))
+                    .await?;
+            }
+            Err(_) => {
+                bot.send_message(msg.chat.id, "Команда не найдена!").await?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn callback_handler(
+    _bot: Bot,
+    _q: CallbackQuery,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    Ok(())
 }
