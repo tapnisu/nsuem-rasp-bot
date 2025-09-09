@@ -2,23 +2,23 @@ use std::fmt;
 
 use scraper::{Html, Selector};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Schedule {
     pub weeks: Vec<Week>,
     pub current_week: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Week {
     pub days: Vec<Option<Day>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Day {
     pub lessons: Vec<Lesson>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Lesson {
     pub time: String,
     pub time_extended: String,
