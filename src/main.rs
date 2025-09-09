@@ -4,13 +4,9 @@ use scraper::{Html, Selector};
 use teloxide::{prelude::*, types::Me, utils::command::BotCommands};
 use tokio::{sync::RwLock, time};
 
-async fn render_rasp() -> String {
-    let req = reqwest::get("https://rasps.nsuem.ru/group/%D0%98%D0%A1502/2")
-        .await
-        .unwrap()
-        .text()
-        .await
-        .unwrap();
+async fn render_rasp(group_name: &str) -> String {
+    let url = format!("https://rasps.nsuem.ru/group/{}", group_name);
+    let req = reqwest::get(url).await.unwrap().text().await.unwrap();
 
     let document = Html::parse_document(&req);
     let row_selector = Selector::parse("table.table tr").unwrap();
@@ -99,14 +95,16 @@ async fn render_rasp() -> String {
 
 #[derive(Clone, Debug)]
 struct GlobalData {
-    rasp: String,
+    rasp1: String,
+    rasp2: String,
 }
 
 impl GlobalData {
     async fn new() -> anyhow::Result<GlobalData> {
-        let rasp = render_rasp().await;
+        let rasp1 = render_rasp("%D0%98%D0%A1502/1").await;
+        let rasp2 = render_rasp("%D0%98%D0%A1502/2").await;
 
-        Ok(GlobalData { rasp })
+        Ok(GlobalData { rasp1, rasp2 })
     }
 }
 
@@ -165,8 +163,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 enum Command {
     #[command(description = "отображает этот текст.")]
     Start,
-    #[command(description = "отображает расписание.")]
-    Rasp,
+    #[command(description = "отображает расписание для ИС502.1.")]
+    Rasp1,
+    #[command(description = "отображает расписание для ИС502.2.")]
+    Rasp2,
 }
 
 async fn message_handler(
@@ -181,13 +181,22 @@ async fn message_handler(
                 bot.send_message(msg.chat.id, Command::descriptions().to_string())
                     .await?;
             }
-            Ok(Command::Rasp) => {
-                let rasp = {
+            Ok(Command::Rasp1) => {
+                let rasp1 = {
                     let data = global_data.read().await;
-                    data.rasp.clone()
+                    data.rasp1.clone()
                 };
 
-                bot.send_message(msg.chat.id, format!("Расписание для ИС502.2:\n\n{}", rasp))
+                bot.send_message(msg.chat.id, format!("Расписание для ИС502.1:\n\n{}", rasp1))
+                    .await?;
+            }
+            Ok(Command::Rasp2) => {
+                let rasp2 = {
+                    let data = global_data.read().await;
+                    data.rasp2.clone()
+                };
+
+                bot.send_message(msg.chat.id, format!("Расписание для ИС502.2:\n\n{}", rasp2))
                     .await?;
             }
             Err(_) => {
