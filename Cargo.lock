@@ -1150,6 +1150,8 @@ dependencies = [
  "regex",
  "reqwest",
  "scraper",
+ "serde",
+ "serde_json",
  "teloxide",
  "tokio",
 ]
