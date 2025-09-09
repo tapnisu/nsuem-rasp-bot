@@ -1,7 +1,12 @@
 use std::{error::Error, process::exit, sync::Arc, time::Duration};
 
+use html_escape::encode_safe;
 use scraper::{Html, Selector};
-use teloxide::{prelude::*, types::Me, utils::command::BotCommands};
+use teloxide::{
+    prelude::*,
+    types::{Me, ParseMode},
+    utils::command::BotCommands,
+};
 use tokio::{sync::RwLock, time};
 
 async fn render_rasp(group_name: &str) -> String {
@@ -38,7 +43,7 @@ async fn render_rasp(group_name: &str) -> String {
 
         if let Some(day_cell) = row.select(&day_selector).next() {
             let current_day = day_cell.text().collect::<String>().trim().to_string();
-            output.push(format!("{}:", current_day));
+            output.push(format!("\n<b>{}</b>:", current_day.to_uppercase()));
         }
 
         let time = row
@@ -85,8 +90,11 @@ async fn render_rasp(group_name: &str) -> String {
             .unwrap_or_default();
 
         output.push(format!(
-            "{} | {} | {} | {}",
-            time, subject, teacher, lesson_type
+            "<code>{}</code> {} ({}) | {}",
+            encode_safe(&time),
+            encode_safe(&subject),
+            encode_safe(&lesson_type),
+            encode_safe(&teacher)
         ));
     }
 
@@ -187,8 +195,12 @@ async fn message_handler(
                     data.rasp1.clone()
                 };
 
-                bot.send_message(msg.chat.id, format!("Расписание для ИС502.1:\n\n{}", rasp1))
-                    .await?;
+                bot.send_message(
+                    msg.chat.id,
+                    format!("<i>Расписание для ИС502.1</i>:\n{}", rasp1),
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
             }
             Ok(Command::Rasp2) => {
                 let rasp2 = {
@@ -196,8 +208,12 @@ async fn message_handler(
                     data.rasp2.clone()
                 };
 
-                bot.send_message(msg.chat.id, format!("Расписание для ИС502.2:\n\n{}", rasp2))
-                    .await?;
+                bot.send_message(
+                    msg.chat.id,
+                    format!("<i>Расписание для ИС502.2</i>:\n{}", rasp2),
+                )
+                .parse_mode(ParseMode::Html)
+                .await?;
             }
             Err(_) => {
                 bot.send_message(msg.chat.id, "Команда не найдена!").await?;
