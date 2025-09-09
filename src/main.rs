@@ -1,7 +1,8 @@
-use std::error::Error;
+use std::{error::Error, process::exit, sync::Arc, time::Duration};
 
 use scraper::{Html, Selector};
 use teloxide::{prelude::*, types::Me, utils::command::BotCommands};
+use tokio::{sync::RwLock, time};
 
 async fn render_rasp() -> String {
     let req = reqwest::get("https://rasps.nsuem.ru/group/%D0%98%D0%A1502/2")
@@ -96,6 +97,19 @@ async fn render_rasp() -> String {
     output.join("\n")
 }
 
+#[derive(Clone, Debug)]
+struct GlobalData {
+    rasp: String,
+}
+
+impl GlobalData {
+    async fn new() -> anyhow::Result<GlobalData> {
+        let rasp = render_rasp().await;
+
+        Ok(GlobalData { rasp })
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     pretty_env_logger::init();
@@ -104,12 +118,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenvy::dotenv().ok();
 
     let bot = Bot::from_env();
+    let global_data = match GlobalData::new().await {
+        Ok(data) => Arc::new(RwLock::new(data)),
+        Err(err) => {
+            eprintln!("{err}");
+            exit(1);
+        }
+    };
+
+    let mut interval = time::interval(Duration::from_secs(5 * 60));
+    tokio::spawn({
+        let global_data = global_data.clone();
+
+        async move {
+            loop {
+                interval.tick().await;
+                let mut rw_data = global_data.write().await;
+
+                match GlobalData::new().await {
+                    Ok(data) => *rw_data = data,
+                    Err(err) => eprintln!("{err}"),
+                }
+            }
+        }
+    });
 
     let handler = dptree::entry()
         .branch(Update::filter_message().endpoint(message_handler))
         .branch(Update::filter_callback_query().endpoint(callback_handler));
 
     Dispatcher::builder(bot, handler)
+        .dependencies(dptree::deps![global_data])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -134,6 +173,7 @@ async fn message_handler(
     bot: Bot,
     msg: Message,
     me: Me,
+    global_data: Arc<RwLock<GlobalData>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if let Some(text) = msg.text() {
         match BotCommands::parse(text, me.username()) {
@@ -142,7 +182,11 @@ async fn message_handler(
                     .await?;
             }
             Ok(Command::Rasp) => {
-                let rasp = render_rasp().await;
+                let rasp = {
+                    let data = global_data.read().await;
+                    data.rasp.clone()
+                };
+
                 bot.send_message(msg.chat.id, format!("Расписание для ИС502.2:\n\n{}", rasp))
                     .await?;
             }
