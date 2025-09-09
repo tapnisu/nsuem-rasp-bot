@@ -73,6 +73,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let mut interval = time::interval(Duration::from_secs(60 * 60));
+    interval.tick().await;
+
     tokio::spawn({
         let global_data = global_data.clone();
 
