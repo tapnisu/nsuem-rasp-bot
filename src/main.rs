@@ -1,6 +1,6 @@
-use std::{error::Error, process::exit, sync::Arc, time::Duration};
+use std::{collections::HashMap, error::Error, process::exit, sync::Arc, time::Duration};
 
-use nsuem_rasp_bot::Schedule;
+use nsuem_rasp_bot::{Schedule, lists::groups::GroupsList};
 use teloxide::{
     prelude::*,
     types::{Me, ParseMode},
@@ -8,21 +8,27 @@ use teloxide::{
 };
 use tokio::{sync::RwLock, time};
 
-#[derive(Clone, Debug)]
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct GlobalData {
-    rasp1: String,
-    rasp2: String,
+    schedules: HashMap<String, String>,
 }
 
 impl GlobalData {
     async fn new() -> anyhow::Result<GlobalData> {
-        let schedule1 = Schedule::new("%D0%98%D0%A1502/1").await;
-        let rasp1 = schedule1.weeks[schedule1.current_week - 1].to_string();
+        let mut schedules: HashMap<String, String> = HashMap::new();
+        let mut interval = time::interval(Duration::from_millis(500));
 
-        let schedule2 = Schedule::new("%D0%98%D0%A1502/2").await;
-        let rasp2 = schedule2.weeks[schedule2.current_week - 1].to_string();
+        for group in GroupsList::fetch().await? {
+            interval.tick().await;
 
-        Ok(GlobalData { rasp1, rasp2 })
+            log::debug!("Fetching {} schedule", group.group_name);
+            let schedule = Schedule::fetch(&group.group_name).await.to_string();
+            schedules.insert(group.group_name.clone(), schedule);
+        }
+
+        log::info!("Finished fetching schedules for {} groups", schedules.len());
+
+        Ok(GlobalData { schedules })
     }
 }
 
@@ -42,7 +48,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    let mut interval = time::interval(Duration::from_secs(5 * 60));
+    let mut interval = time::interval(Duration::from_secs(60 * 60));
     tokio::spawn({
         let global_data = global_data.clone();
 
@@ -81,10 +87,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 enum Command {
     #[command(description = "отображает этот текст.")]
     Start,
-    #[command(description = "отображает расписание для ИС502.1.")]
-    Rasp1,
-    #[command(description = "отображает расписание для ИС502.2.")]
-    Rasp2,
+    #[command(description = "отображает расписание для ИС502.")]
+    Rasp,
 }
 
 async fn message_handler(
@@ -99,28 +103,18 @@ async fn message_handler(
                 bot.send_message(msg.chat.id, Command::descriptions().to_string())
                     .await?;
             }
-            Ok(Command::Rasp1) => {
-                let rasp1 = {
+            Ok(Command::Rasp) => {
+                let schedules = {
                     let data = global_data.read().await;
-                    data.rasp1.clone()
+                    data.schedules.clone()
                 };
 
                 bot.send_message(
                     msg.chat.id,
-                    format!("<i>Расписание для ИС502.1</i>:\n{}", rasp1),
-                )
-                .parse_mode(ParseMode::Html)
-                .await?;
-            }
-            Ok(Command::Rasp2) => {
-                let rasp2 = {
-                    let data = global_data.read().await;
-                    data.rasp2.clone()
-                };
-
-                bot.send_message(
-                    msg.chat.id,
-                    format!("<i>Расписание для ИС502.2</i>:\n{}", rasp2),
+                    format!(
+                        "<i>Расписание для ИС502.1</i>:\n{}",
+                        schedules.get("%D0%98%D0%A1502").unwrap()
+                    ),
                 )
                 .parse_mode(ParseMode::Html)
                 .await?;

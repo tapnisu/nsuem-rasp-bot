@@ -2,7 +2,6 @@ use serde::Deserialize;
 
 #[derive(Deserialize, Default, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GroupsList {
-    #[serde(rename = "GroupName")]
     pub data: Vec<GroupsListItem>,
     pub success: bool,
 }
