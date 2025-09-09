@@ -52,7 +52,11 @@ impl GlobalData {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt()
-        // .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(if cfg!(debug_assertions) {
+            tracing::Level::DEBUG
+        } else {
+            tracing::Level::INFO
+        })
         .init();
 
     log::info!("Starting command bot...");
