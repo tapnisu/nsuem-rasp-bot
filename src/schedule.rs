@@ -216,4 +216,36 @@ impl Schedule {
             current_week,
         }
     }
+
+    pub fn find_diff(&self, old_schedule: &Schedule) -> Option<String> {
+        let today_day_id = 2;
+        let tomorrow_day_id = today_day_id + 1;
+
+        let today_schedule = &self.weeks[self.current_week].days[today_day_id];
+        let old_today_schedule = &old_schedule.weeks[old_schedule.current_week].days[today_day_id];
+
+        if today_schedule != old_today_schedule {
+            return Some(match today_schedule {
+                Some(current_day_schedule) => {
+                    format!("Изменилось расписание на сегодня: {}", current_day_schedule)
+                }
+                None => "Расписание на сегодня пропало...".to_string(),
+            });
+        }
+
+        let tomorrow_schedule = &self.weeks[self.current_week].days[tomorrow_day_id];
+        let old_tomorrow_schedule =
+            &old_schedule.weeks[old_schedule.current_week].days[tomorrow_day_id];
+
+        if tomorrow_schedule != old_tomorrow_schedule {
+            return Some(match tomorrow_schedule {
+                Some(current_day_schedule) => {
+                    format!("Изменилось расписание на завтра: {}", current_day_schedule)
+                }
+                None => "Расписание на завтра пропало...".to_string(),
+            });
+        }
+
+        None
+    }
 }

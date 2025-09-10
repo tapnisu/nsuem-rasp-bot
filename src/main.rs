@@ -35,9 +35,6 @@ impl GlobalData {
             })
             .collect();
 
-        let today_day_id = 2;
-        let tomorrow_day_id = today_day_id + 1;
-
         for group in groups_with_subgroups {
             interval.tick().await;
 
@@ -47,31 +44,8 @@ impl GlobalData {
             if let Some(old_global_data) = old_global_data {
                 let old_schedule = old_global_data.schedules.get(&group).unwrap();
 
-                let today_schedule = &schedule.weeks[schedule.current_week].days[today_day_id];
-                let old_today_schedule =
-                    &old_schedule.weeks[old_schedule.current_week].days[today_day_id];
-
-                if today_schedule != old_today_schedule {
-                    match today_schedule {
-                        Some(current_day_schedule) => {
-                            log::info!("Изменилось расписание на сегодня: {}", current_day_schedule)
-                        }
-                        None => log::info!("Расписание на сегодня пропало..."),
-                    }
-                }
-
-                let tomorrow_schedule =
-                    &schedule.weeks[schedule.current_week].days[tomorrow_day_id];
-                let old_tomorrow_schedule =
-                    &old_schedule.weeks[old_schedule.current_week].days[tomorrow_day_id];
-
-                if tomorrow_schedule != old_tomorrow_schedule {
-                    match tomorrow_schedule {
-                        Some(current_day_schedule) => {
-                            log::info!("Изменилось расписание на завтра: {}", current_day_schedule)
-                        }
-                        None => log::info!("Расписание на завтра пропало..."),
-                    }
+                if let Some(schedule_diff) = schedule.find_diff(old_schedule) {
+                    log::info!("{}", schedule_diff);
                 }
             }
 
