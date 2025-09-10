@@ -14,7 +14,7 @@ struct GlobalData {
 }
 
 impl GlobalData {
-    async fn new() -> anyhow::Result<GlobalData> {
+    async fn new(old_global_data: Option<&GlobalData>) -> anyhow::Result<GlobalData> {
         let mut schedules: HashMap<String, Schedule> = HashMap::new();
         let mut interval = time::interval(Duration::from_millis(500));
 
@@ -35,11 +35,46 @@ impl GlobalData {
             })
             .collect();
 
+        let today_day_id = 2;
+        let tomorrow_day_id = today_day_id + 1;
+
         for group in groups_with_subgroups {
             interval.tick().await;
 
             log::debug!("Fetching {} schedule", group);
             let schedule = Schedule::fetch(&group).await;
+
+            if let Some(old_global_data) = old_global_data {
+                let old_schedule = old_global_data.schedules.get(&group).unwrap();
+
+                let today_schedule = &schedule.weeks[schedule.current_week].days[today_day_id];
+                let old_today_schedule =
+                    &old_schedule.weeks[old_schedule.current_week].days[today_day_id];
+
+                if today_schedule != old_today_schedule {
+                    match today_schedule {
+                        Some(current_day_schedule) => {
+                            log::info!("Изменилось расписание на сегодня: {}", current_day_schedule)
+                        }
+                        None => log::info!("Расписание на сегодня пропало..."),
+                    }
+                }
+
+                let tomorrow_schedule =
+                    &schedule.weeks[schedule.current_week].days[tomorrow_day_id];
+                let old_tomorrow_schedule =
+                    &old_schedule.weeks[old_schedule.current_week].days[tomorrow_day_id];
+
+                if tomorrow_schedule != old_tomorrow_schedule {
+                    match tomorrow_schedule {
+                        Some(current_day_schedule) => {
+                            log::info!("Изменилось расписание на завтра: {}", current_day_schedule)
+                        }
+                        None => log::info!("Расписание на завтра пропало..."),
+                    }
+                }
+            }
+
             schedules.insert(group.clone(), schedule);
         }
 
@@ -64,7 +99,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenvy::dotenv().ok();
 
     let bot = Bot::from_env();
-    let global_data = match GlobalData::new().await {
+    let global_data = match GlobalData::new(None).await {
         Ok(data) => Arc::new(RwLock::new(data)),
         Err(err) => {
             eprintln!("{err}");
@@ -82,8 +117,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             loop {
                 interval.tick().await;
                 let mut rw_data = global_data.write().await;
+                let old_global_data = global_data.read().await;
 
-                match GlobalData::new().await {
+                match GlobalData::new(Some(&old_global_data)).await {
                     Ok(data) => *rw_data = data,
                     Err(err) => eprintln!("{err}"),
                 }
