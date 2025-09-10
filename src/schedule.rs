@@ -6,6 +6,7 @@ use scraper::{Html, Selector};
 pub struct Schedule {
     pub weeks: Vec<Week>,
     pub current_week: usize,
+    pub today_day_id: usize,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
@@ -211,18 +212,21 @@ impl Schedule {
             }
         }
 
+        let today_day_id = 2;
+
         Schedule {
             weeks,
             current_week,
+            today_day_id,
         }
     }
 
     pub fn find_diff(&self, old_schedule: &Schedule) -> Option<String> {
-        let today_day_id = 2;
-        let tomorrow_day_id = today_day_id + 1;
+        let tomorrow_day_id = self.today_day_id + 1;
 
-        let today_schedule = &self.weeks[self.current_week].days[today_day_id];
-        let old_today_schedule = &old_schedule.weeks[old_schedule.current_week].days[today_day_id];
+        let today_schedule = &self.weeks[self.current_week].days[self.today_day_id];
+        let old_today_schedule =
+            &old_schedule.weeks[old_schedule.current_week].days[self.today_day_id];
 
         if today_schedule != old_today_schedule {
             return Some(match today_schedule {

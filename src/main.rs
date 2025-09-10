@@ -3,13 +3,18 @@ use std::{collections::HashMap, error::Error, process::exit, sync::Arc, time::Du
 use nsuem_rasp_bot::{Schedule, lists::groups::GroupsList};
 use teloxide::{
     prelude::*,
-    types::{Me, ParseMode},
+    types::{
+        InlineQueryResult, InlineQueryResultArticle, InputMessageContent, InputMessageContentText,
+        Me, ParseMode,
+    },
     utils::command::BotCommands,
 };
 use tokio::{sync::RwLock, time};
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 struct GlobalData {
+    groups: Vec<String>,
+    groups_with_subgroups: Vec<String>,
     schedules: HashMap<String, Schedule>,
 }
 
@@ -35,29 +40,39 @@ impl GlobalData {
             })
             .collect();
 
-        for group in groups_with_subgroups {
+        log::info!(
+            "started fetching schedules for {} groups",
+            groups_with_subgroups.len()
+        );
+        log::debug!("fetching for {:?}", groups_with_subgroups);
+
+        for group in groups_with_subgroups.clone() {
             interval.tick().await;
 
-            log::debug!("Fetching {} schedule", group);
+            log::debug!("fetching {} schedule", group);
             let schedule = Schedule::fetch(&group).await;
 
-            if let Some(old_global_data) = old_global_data {
-                let old_schedule = old_global_data.schedules.get(&group).unwrap();
-
-                if let Some(schedule_diff) = schedule.find_diff(old_schedule) {
-                    bot.send_message(ChatId(1104237221), schedule_diff)
-                        .parse_mode(ParseMode::Html)
-                        .await
-                        .ok();
-                }
+            if let Some(old_global_data) = old_global_data
+                && let Some(old_schedule) = old_global_data.schedules.get(&group)
+                && let Some(schedule_diff) = schedule.find_diff(old_schedule)
+            {
+                bot.send_message(ChatId(1104237221), schedule_diff)
+                    .parse_mode(ParseMode::Html)
+                    .await
+                    .ok();
             }
 
             schedules.insert(group.clone(), schedule);
         }
 
-        log::info!("Finished fetching schedules for {} groups", schedules.len());
+        log::info!("finished fetching schedules for {} groups", schedules.len());
+        log::debug!("fetched for {:?}", groups_with_subgroups);
 
-        Ok(GlobalData { schedules })
+        Ok(GlobalData {
+            groups,
+            groups_with_subgroups,
+            schedules,
+        })
     }
 }
 
@@ -71,11 +86,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         })
         .init();
 
-    log::info!("Starting command bot...");
+    log::info!("starting");
 
     dotenvy::dotenv().ok();
 
     let bot = Bot::from_env();
+    let me = bot.get_me().await?;
+    log::debug!("bot info: {:?}", me);
+
     let global_data = match GlobalData::new(&bot.clone(), None).await {
         Ok(data) => Arc::new(RwLock::new(data)),
         Err(err) => {
@@ -107,7 +125,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let handler = dptree::entry()
         .branch(Update::filter_message().endpoint(message_handler))
-        .branch(Update::filter_callback_query().endpoint(callback_handler));
+        .branch(Update::filter_callback_query().endpoint(callback_handler))
+        .branch(Update::filter_inline_query().endpoint(inline_handler));
 
     Dispatcher::builder(bot, handler)
         .dependencies(dptree::deps![global_data])
@@ -154,7 +173,7 @@ async fn message_handler(
                 bot.send_message(
                     msg.chat.id,
                     format!(
-                        "<i>Расписание для ИС502.1</i>:\n{}",
+                        "<i>Расписание для ИС502.1</i>:\n\n{}",
                         schedule.weeks[schedule.current_week - 1]
                     ),
                 )
@@ -175,4 +194,89 @@ async fn callback_handler(
     _q: CallbackQuery,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
+}
+
+async fn inline_handler(
+    bot: Bot,
+    q: InlineQuery,
+    global_data: Arc<RwLock<GlobalData>>,
+) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let query_lower = to_cyrillic(&q.query.to_uppercase());
+    log::debug!("received query {}", query_lower);
+
+    let groups_with_subgroups = {
+        let data = global_data.read().await;
+        data.groups_with_subgroups.clone()
+    };
+
+    log::debug!("got groups {:?}", groups_with_subgroups);
+
+    let candidates: Vec<String> = if query_lower.is_empty() {
+        groups_with_subgroups
+    } else {
+        groups_with_subgroups
+            .iter()
+            .filter(|g| g.to_uppercase().contains(&query_lower))
+            .cloned()
+            .collect()
+    };
+
+    log::debug!("got candidates {:?}", candidates);
+
+    let schedules = {
+        let data = global_data.read().await;
+        data.schedules.clone()
+    };
+
+    log::debug!("got schedules {:?}", schedules);
+
+    let results: Vec<InlineQueryResult> = candidates
+        .into_iter()
+        .filter_map(|group| {
+            schedules.get(&group).map(|schedule| {
+                let text = format!(
+                    "<i>Расписание для {} на сегодня</i>:\n\n{}",
+                    group,
+                    schedule.weeks[schedule.current_week - 1].days[schedule.today_day_id]
+                        .clone()
+                        .unwrap()
+                );
+
+                InlineQueryResultArticle::new(
+                    uuid::Uuid::new_v4().to_string(),
+                    group,
+                    InputMessageContent::Text(
+                        InputMessageContentText::new(text).parse_mode(ParseMode::Html),
+                    ),
+                )
+                .into()
+            })
+        })
+        .collect();
+
+    log::debug!("got results {:?}", results);
+
+    bot.answer_inline_query(q.id, results).cache_time(0).await?;
+
+    Ok(())
+}
+
+fn to_cyrillic(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'A' | 'a' => 'А',
+            'B' | 'b' => 'В',
+            'C' | 'c' => 'С',
+            'E' | 'e' => 'Е',
+            'H' | 'h' => 'Н',
+            'K' | 'k' => 'К',
+            'M' | 'm' => 'М',
+            'O' | 'o' => 'О',
+            'P' | 'p' => 'Р',
+            'T' | 't' => 'Т',
+            'X' | 'x' => 'Х',
+            'Y' | 'y' => 'У',
+            other => other,
+        })
+        .collect()
 }
