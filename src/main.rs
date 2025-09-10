@@ -14,7 +14,7 @@ struct GlobalData {
 }
 
 impl GlobalData {
-    async fn new(old_global_data: Option<&GlobalData>) -> anyhow::Result<GlobalData> {
+    async fn new(bot: &Bot, old_global_data: Option<&GlobalData>) -> anyhow::Result<GlobalData> {
         let mut schedules: HashMap<String, Schedule> = HashMap::new();
         let mut interval = time::interval(Duration::from_millis(500));
 
@@ -45,7 +45,10 @@ impl GlobalData {
                 let old_schedule = old_global_data.schedules.get(&group).unwrap();
 
                 if let Some(schedule_diff) = schedule.find_diff(old_schedule) {
-                    log::info!("{}", schedule_diff);
+                    bot.send_message(ChatId(1104237221), schedule_diff)
+                        .parse_mode(ParseMode::Html)
+                        .await
+                        .ok();
                 }
             }
 
@@ -73,7 +76,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenvy::dotenv().ok();
 
     let bot = Bot::from_env();
-    let global_data = match GlobalData::new(None).await {
+    let global_data = match GlobalData::new(&bot.clone(), None).await {
         Ok(data) => Arc::new(RwLock::new(data)),
         Err(err) => {
             eprintln!("{err}");
@@ -86,6 +89,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     tokio::spawn({
         let global_data = global_data.clone();
+        let updater_bot = bot.clone();
 
         async move {
             loop {
@@ -93,7 +97,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 let mut rw_data = global_data.write().await;
                 let old_global_data = global_data.read().await;
 
-                match GlobalData::new(Some(&old_global_data)).await {
+                match GlobalData::new(&updater_bot, Some(&old_global_data)).await {
                     Ok(data) => *rw_data = data,
                     Err(err) => eprintln!("{err}"),
                 }
