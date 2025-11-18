@@ -1,6 +1,7 @@
-use std::{collections::HashMap, error::Error, process::exit, sync::Arc, time::Duration};
+use std::{collections::HashMap, env, error::Error, process::exit, sync::Arc, time::Duration};
 
 use nsuem_rasp_bot::{Schedule, lists::groups::GroupsList, utils::cyrillic::ToCyrillic};
+use sqlx::SqlitePool;
 use teloxide::{
     prelude::*,
     types::{
@@ -89,6 +90,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     log::info!("starting");
 
     dotenvy::dotenv().ok();
+
+    let pool = SqlitePool::connect(&env::var("DATABASE_URL")?).await?;
+
+    sqlx::migrate!("./migrations").run(&pool).await?;
 
     let bot = Bot::from_env();
     let me = bot.get_me().await?;

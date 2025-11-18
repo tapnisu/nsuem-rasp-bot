@@ -58,7 +58,7 @@ impl fmt::Display for Week {
                 3 => "Четверг",
                 4 => "Пятница",
                 5 => "Суббота",
-                6 => "Воскресенье:",
+                6 => "Воскресенье",
                 _ => unreachable!(),
             };
 
@@ -142,8 +142,7 @@ impl Schedule {
                 continue;
             }
 
-            // quick reminder: 0..2 includes [0, 1]
-            for week_index in 0..2 {
+            for week_index in [0, 1] {
                 let cell = &cells[2 + week_index];
 
                 if cell.select(&info_selector).next().is_none() {
