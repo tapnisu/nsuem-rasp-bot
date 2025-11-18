@@ -1,6 +1,6 @@
 use std::{collections::HashMap, error::Error, process::exit, sync::Arc, time::Duration};
 
-use nsuem_rasp_bot::{Schedule, lists::groups::GroupsList};
+use nsuem_rasp_bot::{Schedule, lists::groups::GroupsList, utils::cyrillic::ToCyrillic};
 use teloxide::{
     prelude::*,
     types::{
@@ -201,7 +201,7 @@ async fn inline_handler(
     q: InlineQuery,
     global_data: Arc<RwLock<GlobalData>>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let query_lower = to_cyrillic(&q.query.to_uppercase());
+    let query_lower = q.query.to_uppercase().to_cyrillic();
     log::debug!("received query {}", query_lower);
 
     let groups_with_subgroups = {
@@ -259,24 +259,4 @@ async fn inline_handler(
     bot.answer_inline_query(q.id, results).cache_time(0).await?;
 
     Ok(())
-}
-
-fn to_cyrillic(s: &str) -> String {
-    s.chars()
-        .map(|c| match c {
-            'A' | 'a' => 'А',
-            'B' | 'b' => 'В',
-            'C' | 'c' => 'С',
-            'E' | 'e' => 'Е',
-            'H' | 'h' => 'Н',
-            'K' | 'k' => 'К',
-            'M' | 'm' => 'М',
-            'O' | 'o' => 'О',
-            'P' | 'p' => 'Р',
-            'T' | 't' => 'Т',
-            'X' | 'x' => 'Х',
-            'Y' | 'y' => 'У',
-            other => other,
-        })
-        .collect()
 }
