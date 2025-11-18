@@ -1,25 +1,26 @@
 use std::fmt;
 
 use scraper::{Html, Selector};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Schedule {
     pub weeks: Vec<Week>,
     pub current_week: usize,
     pub today_day_id: usize,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Week {
     pub days: Vec<Option<Day>>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Day {
     pub lessons: Vec<Lesson>,
 }
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Eq, Hash)]
 pub struct Lesson {
     pub time: String,
     pub time_extended: String,
@@ -223,9 +224,9 @@ impl Schedule {
     pub fn find_diff(&self, old_schedule: &Schedule) -> Option<String> {
         let tomorrow_day_id = self.today_day_id + 1;
 
-        let today_schedule = &self.weeks[self.current_week].days[self.today_day_id];
+        let today_schedule = &self.weeks[self.current_week - 1].days[self.today_day_id];
         let old_today_schedule =
-            &old_schedule.weeks[old_schedule.current_week].days[self.today_day_id];
+            &old_schedule.weeks[old_schedule.current_week - 1].days[self.today_day_id];
 
         if today_schedule != old_today_schedule {
             return Some(match today_schedule {
@@ -236,9 +237,9 @@ impl Schedule {
             });
         }
 
-        let tomorrow_schedule = &self.weeks[self.current_week].days[tomorrow_day_id];
+        let tomorrow_schedule = &self.weeks[self.current_week - 1].days[tomorrow_day_id];
         let old_tomorrow_schedule =
-            &old_schedule.weeks[old_schedule.current_week].days[tomorrow_day_id];
+            &old_schedule.weeks[old_schedule.current_week - 1].days[tomorrow_day_id];
 
         if tomorrow_schedule != old_tomorrow_schedule {
             return Some(match tomorrow_schedule {

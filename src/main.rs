@@ -1,7 +1,10 @@
-use std::{collections::HashMap, env, error::Error, process::exit, sync::Arc, time::Duration};
+use std::{env, error::Error, process::exit, sync::Arc, time::Duration};
 
-use nsuem_rasp_bot::{Schedule, lists::groups::GroupsList, utils::cyrillic::ToCyrillic};
-use sqlx::SqlitePool;
+use futures::future::join_all;
+use nsuem_rasp_bot::{
+    Schedule, ScheduleCache, lists::groups::GroupsList, utils::cyrillic::ToCyrillic,
+};
+use sqlx::{Pool, Sqlite, sqlite::SqlitePoolOptions};
 use teloxide::{
     prelude::*,
     types::{
@@ -16,12 +19,10 @@ use tokio::{sync::RwLock, time};
 struct GlobalData {
     groups: Vec<String>,
     groups_with_subgroups: Vec<String>,
-    schedules: HashMap<String, Schedule>,
 }
 
 impl GlobalData {
-    async fn new(bot: &Bot, old_global_data: Option<&GlobalData>) -> anyhow::Result<GlobalData> {
-        let mut schedules: HashMap<String, Schedule> = HashMap::new();
+    async fn new(bot: &Bot, pool: &Pool<Sqlite>) -> anyhow::Result<GlobalData> {
         let mut interval = time::interval(Duration::from_millis(500));
 
         let groups: Vec<String> = if cfg!(debug_assertions) {
@@ -53,9 +54,8 @@ impl GlobalData {
             log::debug!("fetching {} schedule", group);
             let schedule = Schedule::fetch(&group).await;
 
-            if let Some(old_global_data) = old_global_data
-                && let Some(old_schedule) = old_global_data.schedules.get(&group)
-                && let Some(schedule_diff) = schedule.find_diff(old_schedule)
+            if let Some(old_schedule) = Schedule::fetch_cached(&group, pool).await?
+                && let Some(schedule_diff) = schedule.find_diff(&old_schedule)
             {
                 bot.send_message(ChatId(1104237221), schedule_diff)
                     .parse_mode(ParseMode::Html)
@@ -63,16 +63,14 @@ impl GlobalData {
                     .ok();
             }
 
-            schedules.insert(group.clone(), schedule);
+            schedule.write_to_cache(&group, pool).await?;
         }
 
-        log::info!("finished fetching schedules for {} groups", schedules.len());
-        log::debug!("fetched for {:?}", groups_with_subgroups);
+        log::debug!("fetched for {:?} subgroups", groups_with_subgroups);
 
         Ok(GlobalData {
             groups,
             groups_with_subgroups,
-            schedules,
         })
     }
 }
@@ -91,7 +89,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     dotenvy::dotenv().ok();
 
-    let pool = SqlitePool::connect(&env::var("DATABASE_URL")?).await?;
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&env::var("DATABASE_URL")?)
+        .await?;
 
     sqlx::migrate!("./migrations").run(&pool).await?;
 
@@ -99,10 +100,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let me = bot.get_me().await?;
     log::debug!("bot info: {:?}", me);
 
-    let global_data = match GlobalData::new(&bot.clone(), None).await {
+    let global_data = match GlobalData::new(&bot.clone(), &pool).await {
         Ok(data) => Arc::new(RwLock::new(data)),
         Err(err) => {
-            eprintln!("{err}");
+            log::error!("{err}");
             exit(1);
         }
     };
@@ -113,16 +114,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn({
         let global_data = global_data.clone();
         let updater_bot = bot.clone();
+        let pool = pool.clone();
 
         async move {
             loop {
                 interval.tick().await;
                 let mut rw_data = global_data.write().await;
-                let old_global_data = global_data.read().await;
 
-                match GlobalData::new(&updater_bot, Some(&old_global_data)).await {
+                match GlobalData::new(&updater_bot, &pool).await {
                     Ok(data) => *rw_data = data,
-                    Err(err) => eprintln!("{err}"),
+                    Err(err) => log::error!("{err}"),
                 }
             }
         }
@@ -134,7 +135,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .branch(Update::filter_inline_query().endpoint(inline_handler));
 
     Dispatcher::builder(bot, handler)
-        .dependencies(dptree::deps![global_data])
+        .dependencies(dptree::deps![global_data, pool])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
@@ -159,7 +160,7 @@ async fn message_handler(
     bot: Bot,
     msg: Message,
     me: Me,
-    global_data: Arc<RwLock<GlobalData>>,
+    pool: Pool<Sqlite>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     if let Some(text) = msg.text() {
         match BotCommands::parse(text, me.username()) {
@@ -168,12 +169,7 @@ async fn message_handler(
                     .await?;
             }
             Ok(Command::Rasp) => {
-                let schedules = {
-                    let data = global_data.read().await;
-                    data.schedules.clone()
-                };
-
-                let schedule = schedules.get("ИС502.1").unwrap();
+                let schedule = Schedule::fetch_cached("ИС502.1", &pool).await?.unwrap();
 
                 bot.send_message(
                     msg.chat.id,
@@ -205,6 +201,7 @@ async fn inline_handler(
     bot: Bot,
     q: InlineQuery,
     global_data: Arc<RwLock<GlobalData>>,
+    pool: Pool<Sqlite>,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let query_lower = q.query.to_uppercase().to_cyrillic();
     log::debug!("received query {}", query_lower);
@@ -228,36 +225,36 @@ async fn inline_handler(
 
     log::debug!("got candidates {:?}", candidates);
 
-    let schedules = {
-        let data = global_data.read().await;
-        data.schedules.clone()
-    };
+    let futures = candidates.into_iter().map(|group| {
+        let pool = pool.clone();
 
-    log::debug!("got schedules {:?}", schedules);
+        async move {
+            Schedule::fetch_cached(&group, &pool)
+                .await
+                .ok()
+                .flatten()
+                .map(|schedule| {
+                    let text = format!(
+                        "<i>Расписание для {} на сегодня</i>:\n\n{}",
+                        group,
+                        schedule.weeks[schedule.current_week - 1].days[schedule.today_day_id]
+                            .clone()
+                            .unwrap()
+                    );
 
-    let results: Vec<InlineQueryResult> = candidates
-        .into_iter()
-        .filter_map(|group| {
-            schedules.get(&group).map(|schedule| {
-                let text = format!(
-                    "<i>Расписание для {} на сегодня</i>:\n\n{}",
-                    group,
-                    schedule.weeks[schedule.current_week - 1].days[schedule.today_day_id]
-                        .clone()
-                        .unwrap()
-                );
+                    InlineQueryResultArticle::new(
+                        uuid::Uuid::new_v4().to_string(),
+                        group,
+                        InputMessageContent::Text(
+                            InputMessageContentText::new(text).parse_mode(ParseMode::Html),
+                        ),
+                    )
+                    .into()
+                })
+        }
+    });
 
-                InlineQueryResultArticle::new(
-                    uuid::Uuid::new_v4().to_string(),
-                    group,
-                    InputMessageContent::Text(
-                        InputMessageContentText::new(text).parse_mode(ParseMode::Html),
-                    ),
-                )
-                .into()
-            })
-        })
-        .collect();
+    let results: Vec<InlineQueryResult> = join_all(futures).await.into_iter().flatten().collect();
 
     log::debug!("got results {:?}", results);
 
