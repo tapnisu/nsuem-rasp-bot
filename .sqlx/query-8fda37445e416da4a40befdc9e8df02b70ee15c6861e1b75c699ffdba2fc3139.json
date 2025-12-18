@@ -1,0 +1,20 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT schedule_json FROM schedules WHERE group_name = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "schedule_json",
+        "ordinal": 0,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8fda37445e416da4a40befdc9e8df02b70ee15c6861e1b75c699ffdba2fc3139"
+}

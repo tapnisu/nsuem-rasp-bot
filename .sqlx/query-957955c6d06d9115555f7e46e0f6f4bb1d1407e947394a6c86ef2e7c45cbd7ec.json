@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO schedules(group_name, schedule_json) VALUES (?, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "957955c6d06d9115555f7e46e0f6f4bb1d1407e947394a6c86ef2e7c45cbd7ec"
+}
